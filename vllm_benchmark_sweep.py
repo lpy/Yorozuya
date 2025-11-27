@@ -50,8 +50,6 @@ LLAMA_FP8_SERVER_CONFIG = LLAMA_SERVER_DEFAULTS
 LLAMA_FP8_SERVER_ENV = {
     "VLLM_ROCM_QUICK_REDUCE_QUANTIZATION": "INT4",
     "VLLM_ROCM_USE_AITER_MHA": 0,
-    "VLLM_ROCM_USE_AITER_TRITON_FUSED_RMSNORM_FP8_QUANT": 1,
-    "VLLM_ROCM_USE_AITER_TRITON_SILU_MUL_FP8_QUANT": 0,
 }
 
 LLAMA_FP4_SERVER_CONFIG = LLAMA_SERVER_DEFAULTS
@@ -60,6 +58,21 @@ LLAMA_FP4_SERVER_ENV = {
     "VLLM_TRITON_FP4_GEMM_USE_ASM": 1,
     "VLLM_ROCM_QUICK_REDUCE_QUANTIZATION": "INT4",
     "VLLM_ROCM_USE_AITER_MHA": 0,
+}
+
+QWEN3_FP8_SERVER_CONFIG = {
+    "max_model_len": 12000,
+    "max_seq_len_to_capture": 32768,
+    "max_num_seqs": 1024,
+    "max_num_batched_tokens": 32768,
+    "swap_space": 64,
+    "gpu_memory_utilization": 0.94,
+    "compilation-config": "{\"cudagraph_mode\":\"FULL\"}"
+}
+
+QWEN3_FP8_SERVER_ENV = {
+    "SAFETENSORS_FAST_GPU": 1,
+    "VLLM_ROCM_USE_AITER": 1,
 }
 
 
@@ -93,6 +106,9 @@ def get_server_command(args, server_config, server_env):
         "--no-enable-prefix-caching",
         "--async-scheduling"
     ]
+    if "compilation-config" in server_config:
+        cmd.append("--compilation-config")
+        cmd.append(server_config["compilation-config"])
     
     return cmd, env
 
@@ -146,9 +162,10 @@ def run_benchmark_client(args, input_len, output_len, max_concurrency):
         "--random-input-len", str(input_len),
         "--random-output-len", str(output_len),
         "--max-concurrency", str(max_concurrency),
-        "--num-prompts", str(max_concurrency * 10),
+        "--num-prompts", str(max_concurrency * 10 if max_concurrency <= 128 else max_concurrency * 8),
         "--percentile-metrics", "ttft,tpot",
-        "--ignore-eos"
+        "--ignore-eos",
+        "--trust-remote-code",
     ]
 
     print(f"cmd: {' '.join(cmd)}")
@@ -176,6 +193,9 @@ def handle_serve(args):
     elif args.model == "amd/Llama-3.3-70B-Instruct-MXFP4-Preview" or args.model == "amd/Llama-3.1-405B-Instruct-MXFP4-Preview":
         server_config = LLAMA_FP4_SERVER_CONFIG
         server_env = LLAMA_FP4_SERVER_ENV
+    elif args.model == "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8":
+        server_config = QWEN3_FP8_SERVER_CONFIG
+        server_env = QWEN3_FP8_SERVER_ENV
     else:
         sys.exit(1)
 
@@ -216,7 +236,7 @@ def handle_sweep(args):
                         'input_len': input_len,
                         'output_len': output_len,
                         'max_concurrency': max_concurrency,
-                        'num_prompts': max_concurrency * 10,
+                        'num_prompts': 'num_prompts': max_concurrency * 10 if max_concurrency <= 128 else max_concurrency * 8,
                         'output_token_throughput': metrics.get('output_token_throughput', 0),
                         'total_token_throughput': metrics.get('total_token_throughput', 0),
                         'mean_ttft_ms': metrics.get('mean_ttft_ms', 0),
