@@ -60,6 +60,15 @@ LLAMA_FP4_SERVER_ENV = {
     "VLLM_ROCM_USE_AITER_MHA": 0,
 }
 
+LLAMA_4_SERVER_CONFIG = LLAMA_SERVER_DEFAULTS | {
+    "gpu_memory_utilization": 0.97,
+}
+
+LLAMA_4_SERVER_ENV = {
+    "VLLM_ROCM_USE_AITER_PAGED_ATTN": 1,
+    "TRITON_HIP_PRESHUFFLE_SCALES": 1,
+}
+
 QWEN3_FP8_SERVER_CONFIG = {
     "max_model_len": 12000,
     "max_seq_len_to_capture": 32768,
@@ -67,7 +76,8 @@ QWEN3_FP8_SERVER_CONFIG = {
     "max_num_batched_tokens": 32768,
     "swap_space": 64,
     "gpu_memory_utilization": 0.94,
-    "compilation-config": "{\"cudagraph_mode\":\"FULL\"}"
+    "compilation-config": "{\"cudagraph_mode\":\"FULL\"}",
+    "quantization": "fp8",
 }
 
 QWEN3_FP8_SERVER_ENV = {
@@ -109,6 +119,9 @@ def get_server_command(args, server_config, server_env):
     if "compilation-config" in server_config:
         cmd.append("--compilation-config")
         cmd.append(server_config["compilation-config"])
+    if "quantization" in server_config:
+        cmd.append("--quantization")
+        cmd.append(server_config["quantization"])
     
     return cmd, env
 
@@ -193,6 +206,9 @@ def handle_serve(args):
     elif args.model == "amd/Llama-3.3-70B-Instruct-MXFP4-Preview" or args.model == "amd/Llama-3.1-405B-Instruct-MXFP4-Preview":
         server_config = LLAMA_FP4_SERVER_CONFIG
         server_env = LLAMA_FP4_SERVER_ENV
+    elif args.model == "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8":
+        server_config = LLAMA_4_SERVER_CONFIG
+        server_env = LLAMA_4_SERVER_ENV
     elif args.model == "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8":
         server_config = QWEN3_FP8_SERVER_CONFIG
         server_env = QWEN3_FP8_SERVER_ENV
@@ -236,7 +252,7 @@ def handle_sweep(args):
                         'input_len': input_len,
                         'output_len': output_len,
                         'max_concurrency': max_concurrency,
-                        'num_prompts': 'num_prompts': max_concurrency * 10 if max_concurrency <= 128 else max_concurrency * 8,
+                        'num_prompts': max_concurrency * 10 if max_concurrency <= 128 else max_concurrency * 8,
                         'output_token_throughput': metrics.get('output_token_throughput', 0),
                         'total_token_throughput': metrics.get('total_token_throughput', 0),
                         'mean_ttft_ms': metrics.get('mean_ttft_ms', 0),
